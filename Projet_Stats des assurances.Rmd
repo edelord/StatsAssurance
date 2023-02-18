@@ -1,0 +1,149 @@
+---
+title: "Annexe de projet Stats des assurances"
+author: "Isabelle Ajtay, Smail Chabane, Yuxuan ZHANG"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction des données
+
+##Packages
+
+```{r, echo=TRUE,results='hide'}
+library("MASS")
+library("knitr")
+library("tidyverse")
+library("FactoMineR")
+library("factoextra")
+library("corrplot")
+library("ppcor")
+library("NbClust")
+library("fossil")
+library("ggplot2")
+library("lmtest")
+library("vctrs")
+
+```
+
+## Importer les donnees
+
+La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons exportées dans un fichier .txt pour aller plus vite.
+
+```{r, echo=TRUE}
+data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
+#data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
+```
+
+On a utilisé str pour afficher les informations simples des variables et summary pour afficher les données statistiques pour chaque variable. 
+
+```{r, echo=TRUE}
+str(data)
+summary(data)
+
+# Verification des donnees manquantes
+# install.packages("funModeling")
+library ( funModeling )
+# funModeling v.1.9.4 :)
+# Examples and tutorials at livebook.datascienceheroes.com
+df_status(data)         # pas de NA
+```
+
+On a representé les boxplots des variables RUC et Sinistre0. Pour écraser les grandes valeurs, on utilise la fonction log.
+
+```{r, echo=TRUE}
+par(mfrow=c(3,3))
+boxplot(log(data[,2]),main="Boxplot de variable RUC")
+hist(data[,2],main="Histogramme de variable RUC")
+#  erreur ici chez Eva : stat_density requires an x or y aesthetic ggplot(data = data.frame(data[,2])) + geom_density()
+boxplot(data[,27],main="Boxplot de variable Sinistre0")
+hist(data[,27],main="Histogramme de variable Sinistre0")
+density(data[,27])
+```
+
+```{r, echo=TRUE}
+par(mfrow=c(3,2))
+boxplot(data[,17],main="Boxplot de variable Sinistre1")
+hist(data[,17],main="Histogramme de variable Sinistre1")
+boxplot(data[,18],main="Boxplot de variable Sinistre2")
+hist(data[,18],main="Histogramme de variable Sinistre2")
+boxplot(data[,19],main="Boxplot de variable Sinistre3")
+hist(data[,19],main="Histogramme de variable Sinistre3")
+```
+
+On peut constater que les variabilités des Sinistres des 3 types sont tout grandes.
+
+```{r, echo=TRUE}
+aggregate(data[,c(17,18,19,27)],list(data[,1]),mean)
+```
+
+```{r, echo=TRUE}
+correlation=data %>% select_if(is.numeric) %>% cor()
+kable(correlation,digits=3)
+corrplot(correlation)
+```
+
+```{r, echo=TRUE}
+# Boxplot
+boxplot(data$column_name, main = "Boxplot of column_name", xlab = "Column name", ylab = "Values")
+
+# Histogram
+hist(data$column_name, main = "Histogram of column_name", xlab = "Values", ylab = "Frequency", col = "blue")
+
+# Estimateurs de la densitÃ©
+density_plot <- density(data$column_name, main = "Density Plot of column_name", xlab = "Values", ylab = "Density")
+lines(density_plot, col = "red")
+
+# Statistiques basiques
+summary(data$column_name)
+
+```
+
+
+
+#Modélisation de Sinistre0
+
+##Tester les problèmes d'endogénéité de certaines variables
+
+```{r, echo=TRUE}
+# Selection des variables quantitatives 
+quant_vars <- sapply(data, is.numeric)
+
+# Matrice de correlation
+cor_matrix <- cor(data[, quant_vars])
+
+# Tests de causalitÃ© de Granger pour toutes les paires de variables
+quant_vars <- as.matrix(quant_vars)
+d=data[, quant_vars]
+for(i in 1:(ncol(d) - 1)){
+  for(j in (i + 1):ncol(d)){
+
+    result <- grangertest(d[,i], d[,j], order = 2)
+
+    print(paste("Granger causality test entre", colnames(d)[i], 
+                "et", colnames(d)[j], ":", result[2,4]))
+  }
+}
+```
+Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC/durPolice1.
+
+```{r, echo=TRUE}
+# Régression linéaire multiple
+model1 <- lm(Sinistre0 ~ ., data = data)
+
+# Afficher le résumé du modèle
+summary(model1)
+```
+
+```{r, echo=TRUE}
+# Sélection des variables
+selectionAIC=step(model1, trace=TRUE)
+summary(selectionAIC)
+```
+
+```{r, echo=TRUE}
+
+```

@@ -1,0 +1,30 @@
+But :  modéliser les sinistres (claims) Sinistre0 à 3 et les prix des assurances données dans Police1 à 3
+
+A rendre : 
+-mémoire (30 pages maxi)
+les résultats principaux des estimations, une interprétation des résultats, les résultats essentiels (notamment les estimation du modèle retenu), les graphiques essentiels
+***Quelques rappels sur les modèles sont possibles mais doivent être courts. 
+-annexe (20 pages maxi)
+les programmes et résultats intermédiaires, les autres illustrations
+
+Dans une première partie succincte (3-4 pages maximum), on décrira les données : (Projet analyse des donnees/Modele de Regression)
+box plot/d histogramme/des estimateurs de la densité/certaines statistiques descriptives simples
+
+Dans la seconde partie :
+-tester les problèmes d'endogénéité de certaines variables
+-modéliser le Sinistre0 (en faisant attention à l'hétéroscédasticité) 
+-modéliser au moins un des autres Sinistres, 1 , 2, ou 3 
+(notamment pour Sinistre1 à 3 on choisira entre modèle gamma combiné à probit/logit, tobit, tobit généralisé ou double hurdle pour des variables bien choisies)
+-modéliser au moins un prix de Police.
+***Le choix du modèle retenu au final et les critères choisis devront être justifiés.
+
+Dans la partie 3 :
+-modéliser le nombre de sinistre Nsin. 
+-en déduire une méthode de tarification pour de nouveaux arrivants. 
+
+Dans la partie 4 :
+-étudier l'estimateur de Kaplan-Meier (complet et conditionnel à certaines variables) des durées en tenant compte de la censure. 
+-proposer un modèle de Cox pour modéliser la durée en fonction de variables explicatives bien choisis. 
+
+Le rapport uniquement en pdf devra faire figurer vos noms et un titre sur la première page 
+et s'intituler obligatoirement  Statass_Nom1_Nom2_nom3.pdf  ou Nom1 etc sont bien sur remplacés par vos noms de famille . 
