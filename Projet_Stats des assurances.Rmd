@@ -1,17 +1,22 @@
 ---
-title: "Annexe de projet Stats des assurances"
-author: "Isabelle Ajtay, Smail Chabane, Yuxuan ZHANG"
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: pdf_document
+title: "Projet Statistiques des assurances"
+author: 
+- Isabelle Ajtay (41010932) 
+- Smail Chabane (38012939) 
+- Yuxuan Zhang (38019811)
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: pdf_document:
+     toc: true
+lang: fr
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-#Introduction des données
+# Import des données
 
-##Packages
+## Packages
 
 ```{r, echo=TRUE,results='hide'}
 library("MASS")
@@ -26,7 +31,6 @@ library("fossil")
 library("ggplot2")
 library("lmtest")
 library("vctrs")
-
 ```
 
 ## Importer les donnees
@@ -38,10 +42,10 @@ data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
 #data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
 ```
 
-On a utilisé str pour afficher les informations simples des variables et summary pour afficher les données statistiques pour chaque variable. 
+On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable. 
 
 ```{r, echo=TRUE}
-str(data)
+str(data)                      # 5 352 obs, 27 vars
 summary(data)
 
 # Verification des donnees manquantes
@@ -74,31 +78,33 @@ boxplot(data[,19],main="Boxplot de variable Sinistre3")
 hist(data[,19],main="Histogramme de variable Sinistre3")
 ```
 
-On peut constater que les variabilités des Sinistres des 3 types sont tout grandes.
+On peut constater que les variabilités des Sinistres des 3 types sont toutes grandes.
 
 ```{r, echo=TRUE}
 aggregate(data[,c(17,18,19,27)],list(data[,1]),mean)
 ```
 
 ```{r, echo=TRUE}
-correlation=data %>% select_if(is.numeric) %>% cor()
-kable(correlation,digits=3)
-corrplot(correlation)
+variables_quantitatives = data %>% select_if(is.numeric) %>% cor()
+kable(variables_quantitatives, digits=3)
+corrplot(variables_quantitatives)
+corrplot(cor(variables_quantitatives))
+corrplot(cor(variables_quantitatives),method = "ellipse")
 ```
 
 ```{r, echo=TRUE}
 # Boxplot
-boxplot(data$column_name, main = "Boxplot of column_name", xlab = "Column name", ylab = "Values")
+# boxplot(data$column_name, main = "Boxplot of column_name", xlab = "Column name", ylab = "Values")
 
 # Histogram
-hist(data$column_name, main = "Histogram of column_name", xlab = "Values", ylab = "Frequency", col = "blue")
+# hist(data$column_name, main = "Histogram of column_name", xlab = "Values", ylab = "Frequency", col = "blue")
 
 # Estimateurs de la densitÃ©
-density_plot <- density(data$column_name, main = "Density Plot of column_name", xlab = "Values", ylab = "Density")
-lines(density_plot, col = "red")
+# density_plot <- density(data$column_name, main = "Density Plot of column_name", xlab = "Values", ylab = "Density")
+# lines(density_plot, col = "red")
 
 # Statistiques basiques
-summary(data$column_name)
+# summary(data$column_name)
 
 ```
 
