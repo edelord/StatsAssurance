@@ -5,27 +5,51 @@ author:
 - Smail Chabane (38012939) 
 - Yuxuan Zhang (38019811)
 date: "`r format(Sys.time(), '%d %B %Y')`"
-output: pdf_document:
+output: 
+  pdf_document:
      toc: true
 lang: fr
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
-# Import des données
+# Plan d'analyse
 
-## Packages
+L'approche que nous allons suivre pour cette étude :
 
-```{r, echo=TRUE,results='hide'}
-library("MASS")
-library("knitr")
+-   préparation des données pour traitement : importer, vérifier et découper les données
+
+-   analyse des corrélations des variables, deux à deux, et analyse bivariée
+
+-   analyse en composantes principales
+
+-   classification hiérachique ascendante; interprétations dans le contexte historique.
+
+# Les données
+
+```{r, results='hide', include=FALSE, echo=FALSE, warning = FALSE, message=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE)
+
+#install.packages("PerformanceAnalytics")
+
+library(PerformanceAnalytics)    # pour fonction chart.Correlations
+library(dplyr)
+library("knitr")          # pour avoir un format table dans les sorties
 library("tidyverse")
-library("FactoMineR")
-library("factoextra")
-library("corrplot")
-library("ppcor")
+library("ggplot2")        # pour avoir de 'beaux' graphiques
+library("FactoMineR")     # pour effectuer l'ACP
+library("factoextra")     # pour extraire et visualiser les resultats issus de FactoMineR
+library("corrplot")       # pour avoir une representation des correlations
+library("ppcor")          # pour calculer les corrÃ©lations partielles
+library(cowplot)          # pour mettre plusieurs graphes sur une même figure
+library(questionr)        # pour des tableaux
+library(scales)           # pour des plots
+library(psych)
+
+library("MASS")
 library("NbClust")
 library("fossil")
 library("ggplot2")
@@ -33,7 +57,7 @@ library("lmtest")
 library("vctrs")
 ```
 
-## Importer les donnees
+## Import des données
 
 La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons exportées dans un fichier .txt pour aller plus vite.
 
@@ -42,14 +66,15 @@ data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
 #data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
 ```
 
-On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable. 
+On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable.
 
-```{r, echo=TRUE}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 str(data)                      # 5 352 obs, 27 vars
 summary(data)
 
 # Verification des donnees manquantes
 # install.packages("funModeling")
+
 library ( funModeling )
 # funModeling v.1.9.4 :)
 # Examples and tutorials at livebook.datascienceheroes.com
@@ -89,6 +114,10 @@ variables_quantitatives = data %>% select_if(is.numeric) %>% cor()
 kable(variables_quantitatives, digits=3)
 corrplot(variables_quantitatives)
 corrplot(cor(variables_quantitatives))
+
+#Representation des correlations : plus l'ellipse ressemble a un cercle et moins
+#les variables sont correlees. Plus l'ellipse ressemble a une droite et plus les 
+#variables sont correlees.
 corrplot(cor(variables_quantitatives),method = "ellipse")
 ```
 
@@ -106,13 +135,29 @@ corrplot(cor(variables_quantitatives),method = "ellipse")
 # Statistiques basiques
 # summary(data$column_name)
 
+plot(variables_quantitatives)
+
 ```
 
+```{r}
+#-------------------------------------------------
+#                          ACP
+#-------------------------------------------------
 
+res.pca <- PCA(variables_quantitatives, scale.unit = TRUE, ncp=2, graph = F)
 
-#Modélisation de Sinistre0
+res.pca
 
-##Tester les problèmes d'endogénéité de certaines variables
+round(res.pca$eig,2)
+
+res.pca <- PCA(variables_quantitatives, scale.unit = TRUE, ncp=2, graph = T)
+```
+
+# Modélisation de Sinistre0
+
+La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté. S'il y a de l'endogéneïté, OLS (MCO) va donner des résultats inconsistants. L'estimateur des variables instrumentales va être consistant, mais inéfficient.
+
+## Tester les problèmes d'endogénéité de certaines variables
 
 ```{r, echo=TRUE}
 # Selection des variables quantitatives 
@@ -120,20 +165,22 @@ quant_vars <- sapply(data, is.numeric)
 
 # Matrice de correlation
 cor_matrix <- cor(data[, quant_vars])
+corrplot(cor_matrix)
 
-# Tests de causalitÃ© de Granger pour toutes les paires de variables
+# Tests de causalité de Granger pour toutes les paires de variables
 quant_vars <- as.matrix(quant_vars)
-d=data[, quant_vars]
+d = data[, quant_vars]
 for(i in 1:(ncol(d) - 1)){
   for(j in (i + 1):ncol(d)){
 
     result <- grangertest(d[,i], d[,j], order = 2)
 
-    print(paste("Granger causality test entre", colnames(d)[i], 
-                "et", colnames(d)[j], ":", result[2,4]))
+    print(paste("Granger causality test entre ", colnames(d)[i], 
+                " et ", colnames(d)[j], ":", result[2,4]))
   }
 }
 ```
+
 Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC/durPolice1.
 
 ```{r, echo=TRUE}
@@ -144,11 +191,23 @@ model1 <- lm(Sinistre0 ~ ., data = data)
 summary(model1)
 ```
 
-```{r, echo=TRUE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 # Sélection des variables
-selectionAIC=step(model1, trace=TRUE)
+selectionAIC = step(model1, trace=TRUE)
+```
+
+```{r}
 summary(selectionAIC)
 ```
+
+## IV regressions
+
+### The four kinds of variables in IV
+
+-   Y = outcome variables
+-   X = endogenous, causal variable(s)
+-   Z = instrument(s): doivent être exogenes, càd leur influence sur Y se fait seulement via leur influence sur X, la var endogene
+-   W = any exogenous variables not including instruments
 
 ```{r, echo=TRUE}
 
