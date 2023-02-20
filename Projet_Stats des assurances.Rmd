@@ -1,5 +1,5 @@
 ---
-title: "Projet Statistiques des assurances"
+title: "Statistique des assurances - Projet"
 author: 
 - Isabelle Ajtay (41010932) 
 - Smail Chabane (38012939) 
@@ -15,19 +15,19 @@ lang: fr
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-# Plan d'analyse
+Plan d'analyse
 
 L'approche que nous allons suivre pour cette étude :
 
 -   préparation des données pour traitement : importer, vérifier et découper les données
 
--   analyse des corrélations des variables, deux à deux, et analyse bivariée
+-   analyses univariées et bivariées, etdes corrélations des variables deux à deux
 
 -   analyse en composantes principales
 
--   classification hiérachique ascendante; interprétations dans le contexte historique.
+-   classification hiérachique ascendante.
 
-# Les données
+# 1. Description des données
 
 ```{r, results='hide', include=FALSE, echo=FALSE, warning = FALSE, message=FALSE}
 
@@ -57,7 +57,7 @@ library("lmtest")
 library("vctrs")
 ```
 
-## Import des données
+Import des données
 
 La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons exportées dans un fichier .txt pour aller plus vite.
 
@@ -71,6 +71,7 @@ data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
 On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable.
 
 ```{r message=FALSE, warning=FALSE, include=FALSE}
+attach(data)
 str(data)                      # 5 352 obs, 27 vars
 summary(data)
 
@@ -81,13 +82,42 @@ library ( funModeling )
 # funModeling v.1.9.4 :)
 # Examples and tutorials at livebook.datascienceheroes.com
 df_status(data)         # pas de NA
+
+# Statistiques descriptives
+profiling_num(data)
+# statdes = cbind ( profiling_num(data)[,-c(3:7,9,12:16)], max=c( max(RUC),
+# max( reves ), max( Sinistre1), max( Sinistre2), max( Sinistre3),
+# max( Police1), max ( Police2), max( Police3), max( durPolice1),
+# max( Durée ), max( NSin )))
+# statdes
+# 
+# max=c( max(RUC),
+# max( reves ), max( Sinistre1), max( Sinistre2), max( Sinistre3),
+# max( Police1), max ( Police2), max( Police3), max( durPolice1),
+# max( Durée ), max( NSin ))
+# max
+
+quantile(RUC)
+```
+
+On observe que les variables *region, crevpp, agecat* et *habi* sont qualitatives, malgré leur apparence numérique; on les convertit en facteurs
+
+```{r}
+sort(unique(region))          #  1 2 3 4 5 7 8 9
+
+data$region = as.factor ( data$region )
+data$habi = as.factor ( data$habi )
+data$crevpp = as.factor ( data$crevpp )
+data$agecat = as.factor ( data$agecat )
 ```
 
 On a representé les boxplots des variables RUC et Sinistre0. Pour écraser les grandes valeurs, on utilise la fonction log.
 
 ```{r, echo=TRUE}
-par(mfrow=c(3,3))
+par(mfrow=c(2,2))
 boxplot(log(data[,2]),main="Boxplot de variable RUC")
+ggplot(data, aes(y=RUC, fill=Durée)) + geom_boxplot(orientation = "x") + labs(subtitle = "Revenu par unité de consommation")
+
 hist(data[,2],main="Histogramme de variable RUC")
 #  erreur ici chez Eva : stat_density requires an x or y aesthetic ggplot(data = data.frame(data[,2])) + geom_density()
 boxplot(data[,27],main="Boxplot de variable Sinistre0")
@@ -105,8 +135,7 @@ boxplot(data[,19],main="Boxplot de variable Sinistre3")
 hist(data[,19],main="Histogramme de variable Sinistre3")
 ```
 
-
-## 2.3.2 Analyses bivariées 
+## Analyses bivariées
 
 A travers un graphique des variables numériques deux à deux, nous regardons comment évoluent les variables ensemble, et s'il y a des "tendances" reconnaissables. Par exemple, sur le graphique ci-dessous, qui contient les analyses bivariées complètes, on voit une tendance linéaire croissante (et corrélation positive significative) entre *pib* et *recc*. (fonction trouvée à ref. 7: analyse bi + corrélations).
 
@@ -125,7 +154,7 @@ pairs.panels(data[,-c(1,3,4,6,7,8,9,11,14,15,16,17,18,19,20,21,22,23,25,26)],   
          pch=".",          # pch symbol
          ellipses=FALSE,   # If TRUE, draws ellipses 
          scale=TRUE,      # If TRUE, scales the correlation text font
-         main="Correlations entre variables deux par deux", 
+         main="Correlations les plus significatives de Sinistre0 (variables deux par deux)", 
          method="pearson", # Correlation method (can also be "spearman" or "kendall")
          col="red")        # #ADFF2F
 
@@ -134,7 +163,6 @@ pairs.panels(data[,-c(1,3,4,6,7,8,9,11,14,15,16,17,18,19,20,21,22,23,25,26)],   
 #     factor = 2,      # Jittering factor
 #     ci = TRUE)       # If TRUE, adds confidence intervals
 ```
-
 
 On peut constater que les variabilités des Sinistres des 3 types sont toutes grandes.
 
@@ -191,11 +219,9 @@ fviz_pca_biplot(res.pca, axes=c(1,2), col.ind = "cos2", repel = TRUE, pointsize 
 fviz_pca_biplot(res.pca, axes=c(3,4), col.ind = "cos2", repel = TRUE, pointsize = 0.7, labelsize = 3, gradient.cols = c("turquoise1", "blue2", "red"))
 ```
 
-# Modélisation de Sinistre0
+# 2. Modélisation des sinistres et des primes pures
 
-La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté. S'il y a de l'endogéneïté, OLS (MCO) va donner des résultats inconsistants. L'estimateur des variables instrumentales va être consistant, mais inéfficient.
-
-## Tester les problèmes d'endogénéité de certaines variables
+## 2.1 Problème d'endogénéïté dans les variables
 
 ```{r, echo=TRUE}
 # Selection des variables quantitatives 
@@ -206,6 +232,7 @@ cor_matrix <- cor(data[, quant_vars])
 corrplot(cor_matrix)
 
 # Tests de causalité de Granger pour toutes les paires de variables
+# la fonction grangertest() permet de tester si une variable X est un prédicteur significatif d'une autre variable Y dans le cadre de modèles de régression linéaire. La fonction grangertest() prend comme entrée deux modèles de régression linéaire, l'un avec la variable de prédiction et l'autre sans. Elle renvoie une valeur-p pour le test de causalité de Granger. Si la valeur-p est inférieure à un niveau de signification donné (généralement 0,05), on peut rejeter l'hypothèse nulle selon laquelle la variable de prédiction n'améliore pas la capacité du modèle à prédire la variable de réponse.
 quant_vars <- as.matrix(quant_vars)
 d = data[, quant_vars]
 for(i in 1:(ncol(d) - 1)){
@@ -220,6 +247,10 @@ for(i in 1:(ncol(d) - 1)){
 ```
 
 Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC/durPolice1.
+La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté.
+
+S'il y a de l'endogéneïté, OLS (MCO) va donner des résultats inconsistants. L'estimateur des variables instrumentales va être consistant, mais inéfficient.
+
 
 ```{r, echo=TRUE}
 # Régression linéaire multiple
@@ -238,6 +269,15 @@ selectionAIC = step(model1, trace=TRUE)
 summary(selectionAIC)
 ```
 
+## 2.2 Modélisation de Sinistre0
+## 2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un) 
+notamment pour Sinistre1 à 3 on choisira entre modèle gamma combiné à probit/logit, tobit, tobit généralisé ou double hurdle pour des variables bien choisies
+
+## 2.4 Modèle pour le prix de Police 1 ou 2 ou 3 (au moins un)
+## 2.5 Modèle retenu au final
+Le choix du modèle retenu au final et les critères choisis devront être justifiés.
+
+
 ## IV regressions
 
 ### The four kinds of variables in IV
@@ -250,3 +290,11 @@ summary(selectionAIC)
 ```{r, echo=TRUE}
 
 ```
+
+# 3. Modélisation du nombre de sinistres et tarification des nouveaux arrivants
+## 3.1 Modèle pour le nombre de sinistres, NSin
+## 3.2 Méthode de tarification pour les nouveaux arrivants
+
+# 4. Estimation des durées
+## 4.1 Estimateur de Kaplan-Meier
+## 4.2 Modèle de Cox
