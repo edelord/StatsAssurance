@@ -15,17 +15,10 @@ lang: fr
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-Plan d'analyse
+L'objectif du présent projet: on se place dans le contexte d'une entreprise d'assurance non-vie, qui dispose d'un jeu de données historiques et souhaite modéliser les sinistres (4 types distincts), les prix des polices d'assurance précédemment vendues, ainsi que la durée de vie d'un contrat d'assurance.
+Nous allons utiliser la validation croisée, une des meilleures méthodes d'estimation de l'erreur des modèles.
 
-L'approche que nous allons suivre pour cette étude :
-
--   préparation des données pour traitement : importer, vérifier et découper les données
-
--   analyses univariées et bivariées, etdes corrélations des variables deux à deux
-
--   analyse en composantes principales
-
--   classification hiérachique ascendante.
+La mtd train du package caret fait de la cv + boot, et permet d'ajuster des centaines de modèles prédictifs différents, spécifiés facilement avec l'argument method. VerboseIter donne un log du progress, pe masura ce le modèle est ajusté.
 
 # 1. Description des données
 
@@ -34,6 +27,7 @@ L'approche que nous allons suivre pour cette étude :
 knitr::opts_chunk$set(echo = FALSE)
 
 #install.packages("PerformanceAnalytics")
+#install.packages("vcd")
 
 library(PerformanceAnalytics)    # pour fonction chart.Correlations
 library(dplyr)
@@ -48,6 +42,9 @@ library(cowplot)          # pour mettre plusieurs graphes sur une même figure
 library(questionr)        # pour des tableaux
 library(scales)           # pour des plots
 library(psych)
+library(AER);             # Applied Econometrics with R
+library(vcd)              # pour calculer le coeff. V de Cramèr
+
 
 library("MASS")
 library("NbClust")
@@ -62,11 +59,12 @@ Import des données
 La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons exportées dans un fichier .txt pour aller plus vite.
 
 ```{r, echo=TRUE}
+cat("\f")                                          # clears the console, by sending Ctrl + L
 data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
 #data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
 ```
 
-## Analyses univariées
+## 1.1 Analyses univariées
 
 On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable.
 
@@ -74,6 +72,48 @@ On a utilisé str pour afficher les informations simples concernant les variable
 attach(data)
 str(data)                      # 5 352 obs, 27 vars
 summary(data)
+
+# on observe des factuers encodés comme caractères. On corrige.
+
+```
+
+Voici les variables:
+[1] pcs        2 RUC       3 cs         4 reves      5 crevpp       6 region     7 habi
+8 Ahabi        9 Atyph      10 agecat   11 Acompm     12 nbpers     13 enfants    14 Anat
+15 Bauto      16 "Nbadulte"   17 Sinistre1"  18 Sinistre2 19 Sinistre3"  20 Police1
+21 "Police2"    22 "Police3"    23 "durPolice1" 24 Durée"      25 NSin"       26 censure"    27 Sinistre0
+
+On observe que les variables *pcs, cs, region, crevpp, agecat* et *habi* sont qualitatives, malgré leur apparence numérique; on les convertit en facteurs
+
+```{r}
+sort(unique(region))          #  1 2 3 4 5 7 8 9
+
+data$pcs = as.factor ( data$pcs )
+data$cs = as.factor ( data$cs )
+data$Ahabi = as.factor ( data$Ahabi )
+data$Atyph = as.factor( data$Atyph )
+data$region = as.factor ( data$region )
+data$habi = as.factor ( data$habi )
+data$crevpp = as.factor ( data$crevpp )
+data$agecat = as.factor ( data$agecat )
+data$Acompm = as.factor(data$Acompm)
+data$enfants = as.factor(data$enfants)
+data$Anat = as.factor(data$Anat)
+data$Anat = as.factor(data$Anat)
+data$Bauto = ifelse(Bauto == "Pas de vehicule", 0, 1)
+data2 = data
+data2$RUC = log(data2$RUC)
+```
+
+
+```{r}
+plot(RUC)
+plot(log10(RUC))
+hist(RUC)
+hist(log10(RUC))
+hist(Sinistre0)
+hist(NSin)
+hist(log(NSin))
 
 # Verification des donnees manquantes
 # install.packages("funModeling")
@@ -100,17 +140,6 @@ profiling_num(data)
 quantile(RUC)
 ```
 
-On observe que les variables *region, crevpp, agecat* et *habi* sont qualitatives, malgré leur apparence numérique; on les convertit en facteurs
-
-```{r}
-sort(unique(region))          #  1 2 3 4 5 7 8 9
-
-data$region = as.factor ( data$region )
-data$habi = as.factor ( data$habi )
-data$crevpp = as.factor ( data$crevpp )
-data$agecat = as.factor ( data$agecat )
-```
-
 On a representé les boxplots des variables RUC et Sinistre0. Pour écraser les grandes valeurs, on utilise la fonction log.
 
 ```{r, echo=TRUE}
@@ -135,7 +164,7 @@ boxplot(data[,19],main="Boxplot de variable Sinistre3")
 hist(data[,19],main="Histogramme de variable Sinistre3")
 ```
 
-## Analyses bivariées
+## 1.2 Analyses bivariées
 
 A travers un graphique des variables numériques deux à deux, nous regardons comment évoluent les variables ensemble, et s'il y a des "tendances" reconnaissables. Par exemple, sur le graphique ci-dessous, qui contient les analyses bivariées complètes, on voit une tendance linéaire croissante (et corrélation positive significative) entre *pib* et *recc*. (fonction trouvée à ref. 7: analyse bi + corrélations).
 
@@ -145,7 +174,8 @@ A travers un graphique des variables numériques deux à deux, nous regardons co
 #install.packages("psych")
 library(psych)
   
-pairs.panels(data[,-c(1,3,4,6,7,8,9,11,14,15,16,17,18,19,20,21,22,23,25,26)],         # [2:12]
+# on retire des variables
+pairs.panels(data2[,-c(1,2, 3,4, 6, 7, 8, 9, 11, 14, 15,16,17,18,19,20,21,22,23,24, 25,26)],         # [2:12]
          smooth = TRUE,    # If TRUE, draws loess smooths
          hist.col="#00FA9A",        # Histograms color
          show.points=TRUE, 
@@ -154,7 +184,7 @@ pairs.panels(data[,-c(1,3,4,6,7,8,9,11,14,15,16,17,18,19,20,21,22,23,25,26)],   
          pch=".",          # pch symbol
          ellipses=FALSE,   # If TRUE, draws ellipses 
          scale=TRUE,      # If TRUE, scales the correlation text font
-         main="Correlations les plus significatives de Sinistre0 (variables deux par deux)", 
+         main="Correlations les plus significatives de Sinistre0 (variables 2 par 2)", 
          method="pearson", # Correlation method (can also be "spearman" or "kendall")
          col="red")        # #ADFF2F
 
@@ -171,15 +201,16 @@ aggregate(data[,c(17,18,19,27)],list(data[,1]),mean)
 ```
 
 ```{r, echo=TRUE}
+#Representation des correlations
 variables_quantitatives = data %>% select_if(is.numeric) %>% cor()
 kable(variables_quantitatives, digits=3)
 corrplot(variables_quantitatives)
-corrplot(cor(variables_quantitatives))
-
-#Representation des correlations : plus l'ellipse ressemble a un cercle et moins
-#les variables sont correlees. Plus l'ellipse ressemble a une droite et plus les 
-#variables sont correlees.
-corrplot(cor(variables_quantitatives),method = "ellipse")
+```
+```{r}   
+# variante de Q.
+datc =as.data.frame ( lapply (data2 ,as.numeric ))
+correlation = cor( datc )
+corrplot ( correlation )
 ```
 
 ```{r, echo=TRUE}
@@ -219,6 +250,20 @@ fviz_pca_biplot(res.pca, axes=c(1,2), col.ind = "cos2", repel = TRUE, pointsize 
 fviz_pca_biplot(res.pca, axes=c(3,4), col.ind = "cos2", repel = TRUE, pointsize = 0.7, labelsize = 3, gradient.cols = c("turquoise1", "blue2", "red"))
 ```
 
+## 1.3 Dépendances entre les variables
+
+Si les variables explicatives sont fortement corrélées entre elles, cela peut rendre l'interprétation du coefficient de corrélation plus difficile. Nous allons vérifier la corrélation entre les variables explicatives en utilisant le coefficient V de Cramèr. On peut utiliser la fonction assocstats pour calculer les coefficients V de Cramer pour toutes les paires de variables et stocker les résultats dans une matrice, puis créer une heatmap à partir de cette matrice en utilisant la fonction heatmap :
+
+```{r}
+#' ne marche pas: Error in apply(x, 3:l, FUN = assocstats) : 
+#'  'MARGIN' ne correspond pas à dim(X)
+#' cramer <- as.matrix(assocstats(data))
+#'heatmap(cramer, 
+#'        symm = TRUE, 
+#'        margins = c(dim(data),dim(data)), 
+#'        main = "Heatmap des coefficients V de Cramer")
+```
+
 # 2. Modélisation des sinistres et des primes pures
 
 ## 2.1 Problème d'endogénéïté dans les variables
@@ -246,11 +291,9 @@ for(i in 1:(ncol(d) - 1)){
 }
 ```
 
-Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC/durPolice1.
-La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté.
+Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC/durPolice1. La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté.
 
 S'il y a de l'endogéneïté, OLS (MCO) va donner des résultats inconsistants. L'estimateur des variables instrumentales va être consistant, mais inéfficient.
-
 
 ```{r, echo=TRUE}
 # Régression linéaire multiple
@@ -270,13 +313,16 @@ summary(selectionAIC)
 ```
 
 ## 2.2 Modélisation de Sinistre0
-## 2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un) 
+
+## 2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un)
+
 notamment pour Sinistre1 à 3 on choisira entre modèle gamma combiné à probit/logit, tobit, tobit généralisé ou double hurdle pour des variables bien choisies
 
 ## 2.4 Modèle pour le prix de Police 1 ou 2 ou 3 (au moins un)
-## 2.5 Modèle retenu au final
-Le choix du modèle retenu au final et les critères choisis devront être justifiés.
 
+## 2.5 Modèle retenu au final
+
+Le choix du modèle retenu au final et les critères choisis devront être justifiés.
 
 ## IV regressions
 
@@ -292,9 +338,13 @@ Le choix du modèle retenu au final et les critères choisis devront être justi
 ```
 
 # 3. Modélisation du nombre de sinistres et tarification des nouveaux arrivants
+
 ## 3.1 Modèle pour le nombre de sinistres, NSin
+
 ## 3.2 Méthode de tarification pour les nouveaux arrivants
 
 # 4. Estimation des durées
+
 ## 4.1 Estimateur de Kaplan-Meier
+
 ## 4.2 Modèle de Cox
