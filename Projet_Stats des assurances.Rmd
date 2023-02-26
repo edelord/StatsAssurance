@@ -15,12 +15,27 @@ lang: fr
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-L'objectif du présent projet: on se place dans le contexte d'une entreprise d'assurance non-vie, qui dispose d'un jeu de données historiques et souhaite modéliser les sinistres (4 types distincts), les prix des polices d'assurance précédemment vendues, ainsi que la durée de vie d'un contrat d'assurance.
-Nous allons utiliser la validation croisée, une des meilleures méthodes d'estimation de l'erreur des modèles.
+# 1 Contexte et objectifs 
 
-La mtd train du package caret fait de la cv + boot, et permet d'ajuster des centaines de modèles prédictifs différents, spécifiés facilement avec l'argument method. VerboseIter donne un log du progress, pe masura ce le modèle est ajusté.
+Dans le cadre du présent projet, nous somme une compagnie d'assurance non-vie, qui dispose d'un jeu de données historiques sur des ménages ayant souscrit ses polices d'assurance.
 
-# 1. Description des données
+Les objectifs ? Déterminer la prime pure pour un ménage intéressé par l'assurance proposée par notre compagnie. On souhaite construire un modèle qui explique les demandes d'indemnisation (Sinistres 1, 2 et 3) en utilisant les données qu'on possède. On veut aussi des modèles pour les prix des polices d'assurance précédemment vendues, le nombre de sinistres, ainsi que la durée de vie d'un contrat d'assurance.
+
+Pour ce faire, nous employerons des méthodes et outils vus en cours de Statistiques des Assurances, et d'autres cours, sous le logiciel *R*.
+
+*La mtd train du package caret fait de la cv + boot, et permet d'ajuster des centaines de modèles prédictifs différents, spécifiés facilement avec l'argument method. VerboseIter donne un log du progress, pe masura ce le modèle est ajusté.*
+
+On va choisir lequel des deux on met dans le modèle: RUC ou full income. Mais pas les 2 car très fortement correlees. Il y a aussi les quantiles de cet income.
+
+Anat non signif. A suppr.
+
+Police i corresp a sin. i. Il a une assurance de base et rajoute des additionnelles. 0-\> le type n'a pas pris cette assurance là.
+
+Sini1 plus facile a modéliser, moins de zeros. 2 et 3 en ont bcp.
+
+1283 outlier pê. On doit les enlever.
+
+# 2. Description des données
 
 ```{r, results='hide', include=FALSE, echo=FALSE, warning = FALSE, message=FALSE}
 
@@ -31,13 +46,13 @@ knitr::opts_chunk$set(echo = FALSE)
 
 library(PerformanceAnalytics)    # pour fonction chart.Correlations
 library(dplyr)
-library("knitr")          # pour avoir un format table dans les sorties
-library("tidyverse")
-library("ggplot2")        # pour avoir de 'beaux' graphiques
-library("FactoMineR")     # pour effectuer l'ACP
-library("factoextra")     # pour extraire et visualiser les resultats issus de FactoMineR
-library("corrplot")       # pour avoir une representation des correlations
-library("ppcor")          # pour calculer les corrÃ©lations partielles
+library(knitr)          # pour avoir un format table dans les sorties
+library(tidyverse)
+library(ggplot2)        # pour avoir de 'beaux' graphiques
+library(FactoMineR)     # pour effectuer l'ACP
+library(factoextra)     # pour extraire et visualiser les resultats issus de FactoMineR
+library(corrplot)       # pour avoir une representation des correlations
+library(ppcor)          # pour calculer les corrélations partielles
 library(cowplot)          # pour mettre plusieurs graphes sur une même figure
 library(questionr)        # pour des tableaux
 library(scales)           # pour des plots
@@ -45,13 +60,12 @@ library(psych)
 library(AER);             # Applied Econometrics with R
 library(vcd)              # pour calculer le coeff. V de Cramèr
 
-
-library("MASS")
-library("NbClust")
-library("fossil")
-library("ggplot2")
-library("lmtest")
-library("vctrs")
+library(MASS)
+library(NbClust)
+library(fossil)
+library(ggplot2)
+library(lmtest)
+library(vctrs)
 ```
 
 Import des données
@@ -59,12 +73,12 @@ Import des données
 La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons exportées dans un fichier .txt pour aller plus vite.
 
 ```{r, echo=TRUE}
-cat("\f")                                          # clears the console, by sending Ctrl + L
+cat("\f")                                # clears the console, by sending Ctrl + L
 data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
 #data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
 ```
 
-## 1.1 Analyses univariées
+## 2.1 Analyses univariées
 
 On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable.
 
@@ -73,17 +87,16 @@ attach(data)
 str(data)                      # 5 352 obs, 27 vars
 summary(data)
 
-# on observe des factuers encodés comme caractères. On corrige.
-
+# ne marche pas
+#statdes = cbind ( profiling_num(data)[,-c(3:7,9,12:16)], max=c(max (RUC),
+#max( reves ), max( Sinistre1), max( Sinistre2), max( Sinistre3),
+#max( Police1), max ( Police2), max( Police3), max( durPolice1),
+#max( Durée ), max( NSin )))
 ```
 
-Voici les variables:
-[1] pcs        2 RUC       3 cs         4 reves      5 crevpp       6 region     7 habi
-8 Ahabi        9 Atyph      10 agecat   11 Acompm     12 nbpers     13 enfants    14 Anat
-15 Bauto      16 "Nbadulte"   17 Sinistre1"  18 Sinistre2 19 Sinistre3"  20 Police1
-21 "Police2"    22 "Police3"    23 "durPolice1" 24 Durée"      25 NSin"       26 censure"    27 Sinistre0
+Voici les variables: [1] pcs 2 RUC 3 cs 4 reves 5 crevpp 6 region 7 habi 8 Ahabi 9 Atyph 10 agecat 11 Acompm 12 nbpers 13 enfants 14 Anat 15 Bauto 16 "Nbadulte" 17 Sinistre1" 18 Sinistre2 19 Sinistre3" 20 Police1 21 "Police2" 22 "Police3" 23 "durPolice1" 24 Durée" 25 NSin" 26 censure" 27 Sinistre0
 
-On observe que les variables *pcs, cs, region, crevpp, agecat* et *habi* sont qualitatives, malgré leur apparence numérique; on les convertit en facteurs
+On observe que les variables *pcs, cs, region, crevpp, agecat* et *habi* sont qualitatives, malgré leur format caractères ou numérique. On rémedie.
 
 ```{r}
 sort(unique(region))          #  1 2 3 4 5 7 8 9
@@ -101,20 +114,25 @@ data$enfants = as.factor(data$enfants)
 data$Anat = as.factor(data$Anat)
 data$Anat = as.factor(data$Anat)
 data$Bauto = ifelse(Bauto == "Pas de vehicule", 0, 1)
+# data$censure = ifelse(censure == 0, 0, 1)      est déjà 0 / 1
+
 data2 = data
 data2$RUC = log(data2$RUC)
 ```
 
-
 ```{r}
-plot(RUC)
-plot(log10(RUC))
+# pas très intéressant et occupe de la place
+# plot(RUC)
+# plot(log10(RUC))
+```
+
+```{r echo=FALSE, warning=FALSE, figures-side-biplot2, fig.show="hold", out.width="50%"}
+par(mar = c(4, 4, .1, .1))
 hist(RUC)
 hist(log10(RUC))
-hist(Sinistre0)
-hist(NSin)
-hist(log(NSin))
+```
 
+```{r}
 # Verification des donnees manquantes
 # install.packages("funModeling")
 
@@ -138,6 +156,13 @@ profiling_num(data)
 # max
 
 quantile(RUC)
+```
+
+```{r}
+par ( mfcol =c(1 ,3))
+boxplot ( Sinistre0 ~ cs , data =data2 )
+boxplot ( Sinistre0 ~ agecat , data =data2 )
+boxplot ( Sinistre0 ~ Acompm , data =data2 )
 ```
 
 On a representé les boxplots des variables RUC et Sinistre0. Pour écraser les grandes valeurs, on utilise la fonction log.
@@ -164,7 +189,7 @@ boxplot(data[,19],main="Boxplot de variable Sinistre3")
 hist(data[,19],main="Histogramme de variable Sinistre3")
 ```
 
-## 1.2 Analyses bivariées
+## 2.2 Analyses bivariées
 
 A travers un graphique des variables numériques deux à deux, nous regardons comment évoluent les variables ensemble, et s'il y a des "tendances" reconnaissables. Par exemple, sur le graphique ci-dessous, qui contient les analyses bivariées complètes, on voit une tendance linéaire croissante (et corrélation positive significative) entre *pib* et *recc*. (fonction trouvée à ref. 7: analyse bi + corrélations).
 
@@ -194,7 +219,7 @@ pairs.panels(data2[,-c(1,2, 3,4, 6, 7, 8, 9, 11, 14, 15,16,17,18,19,20,21,22,23,
 #     ci = TRUE)       # If TRUE, adds confidence intervals
 ```
 
-On peut constater que les variabilités des Sinistres des 3 types sont toutes grandes.
+On peut constater que les variabilités des trois types de *Sinistres* sont toutes grandes.
 
 ```{r, echo=TRUE}
 aggregate(data[,c(17,18,19,27)],list(data[,1]),mean)
@@ -206,7 +231,8 @@ variables_quantitatives = data %>% select_if(is.numeric) %>% cor()
 kable(variables_quantitatives, digits=3)
 corrplot(variables_quantitatives)
 ```
-```{r}   
+
+```{r}
 # variante de Q.
 datc =as.data.frame ( lapply (data2 ,as.numeric ))
 correlation = cor( datc )
@@ -250,7 +276,7 @@ fviz_pca_biplot(res.pca, axes=c(1,2), col.ind = "cos2", repel = TRUE, pointsize 
 fviz_pca_biplot(res.pca, axes=c(3,4), col.ind = "cos2", repel = TRUE, pointsize = 0.7, labelsize = 3, gradient.cols = c("turquoise1", "blue2", "red"))
 ```
 
-## 1.3 Dépendances entre les variables
+## 2.3 Dépendances entre les variables
 
 Si les variables explicatives sont fortement corrélées entre elles, cela peut rendre l'interprétation du coefficient de corrélation plus difficile. Nous allons vérifier la corrélation entre les variables explicatives en utilisant le coefficient V de Cramèr. On peut utiliser la fonction assocstats pour calculer les coefficients V de Cramer pour toutes les paires de variables et stocker les résultats dans une matrice, puis créer une heatmap à partir de cette matrice en utilisant la fonction heatmap :
 
@@ -264,9 +290,19 @@ Si les variables explicatives sont fortement corrélées entre elles, cela peut 
 #'        main = "Heatmap des coefficients V de Cramer")
 ```
 
-# 2. Modélisation des sinistres et des primes pures
+```{r}
+# ne marche pas bien: Erreur dans pcor: x must be numeric
+# Calcul de la matrice de corrélation partielle avec pcor
+#cor_partielle <- pcor(data2, method = "pearson")
 
-## 2.1 Problème d'endogénéïté dans les variables
+# Affichage de la matrice de corrélation partielle
+#print(cor_partielle)
+
+```
+
+# 3. Modélisation des sinistres et des primes pures
+
+## 3.1 Problème d'endogénéïté dans les variables
 
 ```{r, echo=TRUE}
 # Selection des variables quantitatives 
@@ -312,21 +348,75 @@ selectionAIC = step(model1, trace=TRUE)
 summary(selectionAIC)
 ```
 
-## 2.2 Modélisation de Sinistre0
+## 3.2 Modélisation de *Sinistre0*
 
-## 2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un)
+On observe sur l'histogramme de la variable *Sinistre0* qu'il y a deux sous-populations distinctes, qu'on sépare.
+
+```{r}
+# Chargement des packages nécessaires
+library(tidyverse)
+
+# Création d'une variable pour déterminer les groupes
+# Selon la moyenne et l'écart-type de la variable à expliquer
+data2 <- data2 %>%
+  mutate(group = if_else(Sinistre0 > 14, "Group 1", "Group 2"))
+
+# Visualisation des deux groupes à l'aide d'un histogramme
+ggplot(data2, aes(x = Sinistre0, fill = group)) +
+  geom_histogram(binwidth = 1, position = "identity", alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue", "grey"), name = "Group") +
+  theme_minimal()
+
+```
+
+Analyse multivariée:
+
+```{r warning=FALSE}
+scatter3d(Sinistre0~nbpers*NSin, data=data, surface=FALSE, residuals=TRUE, 
+  bg="black", axis.scales=TRUE, axis.ticks=TRUE, grid=TRUE, ellipsoid=FALSE, surface.col=carPalette()[-1], surface.alpha=0.5, fogtype=c("exp2", "linear", "exp", "none"), fill=TRUE )
+```
+
+Comme la variable *Sinistre0* n'a pas de zéros (toutes les valeurs observées sont positives), on va la modéliser avec un linéaire:
+
+```{r}
+# Création d'un indicateur binaire pour le groupe 1 de Sinistre0
+data2$groupe <- ifelse(Sinistre0 == "Groupe 1", 1, 0)
+
+# Modèle linéaire avec Sinistre0 comme variable expliquée
+# on enlève des variables non significatives: pcs + cs + + Sinistre2 + Sinistre3
+# + Police1 + Police2 + Police3 + Ahabi + Atyph + durPolice1 + enfants
+#  + Bauto + Nbadulte + habi + agecat + NSin + region
+modele <- lm(Sinistre0 ~ groupe + RUC + crevpp + Acompm + nbpers  + Anat + Durée, data = data2)
+
+# Affichage des résultats de la modélisation
+summary(modele)
+```
+
+Prof: , on peut essayer le modéliser par un modèle linéaire f. de: compo du ménage, catégorie d'âge, type d'habitation, nationalité, voiture ou pas, catégorie socio-prof, la région, le revenu (un d'eux!!). On ne va pas mettre la variable censure ou pas, qui nous dit si l'individu est dans la base ou pas. Il faut pas la mettre. Durée? Ca peut faire du sens, mais ça risque de compliquer un peu le modèle. Mais durée de Police est celle de la Police1, or je ne sais à quoi c lié le Sinistre0. Les enfants, ça peut être rendondant avec d'autres variables (type de ménage pê). Ca donne un premier modèle.
+
+Plein de choses ne sont pas signif. Couple avec enfant c *très signif*; la compo du mènage, et le revenu aussi, très signif. On va faire le tri, regarder les AIC.
+
+Et si on fait des analyses numériques, notamment des graphes, il y a des phénomènes un peu bizzares: des gros packets. Cad on a des individus dont les fitted values sont très petites; et pour d'autres, très grosses. Donc c un mélange. Il y a vraiment DEUX POPULATIONS la dédans - une certaine **hétérosced**.
+
+Pour modéliser l'hétérosced, il y a qqch de très simple dans un 1er temps: prendre les résidus du modèle et les mettre au carré. Puis regresser sur les variables mises dans le modèles. Car si on regresse et on voit qu'il y a des variables qui sont significatives, càd que [les residus dépendent des variables observées]{.underline}. Donc un moyen très simple, lin_modele_1.1, si on plot les residus, on va les mettre au carré + nommer () et on va les regresser (LM) sur les variables que j'ai vu qu'étaient significatives: RUC, Acompm (compo du menage). On voit que RUC est très signif - donc il y a de l'hétérosced. Donc faudra ut. les moindres carrés linéaires généralisés.
+
+GLM: on peut essayer de modéliser. On rajoute une nouvelle var, delta: le fait que le sinistre1 soit \>0. Cad j'ai une sinistre, vs. j'ai pas de sinistre. Donc j'ai une nouvelle var, que je vais modéliser par un probit: modèle lin gen, var. delta expliquée par : cs, anat, type... Fam Binomiale, avec modèle soit Probit ou logit. Cloglog (double exponentielle). Rcmd donne le modèle: glm, famille de lien binomial, avec une famille logit. Ca sort tous les estimateurs, et faudra choisir quelles sont pertinentes pour savoir si on aura un sinistre de type 1 ou pas.
+
+On voit que la catégorie d'âge est importante en particulier pour les personnes agées; la région aussi, mais aussi la compo du ménage; et le type être proprio ou pas est légéremment signif. Faudra qu'on choisisse nous les variables.
+
+On va voir, très souvent, que les modèles linéaire, gamma, autre modèles, ne sont pas très différents, a la fin. En terme des coefficients ou des residus. Mais s'il y a beaucoup de zéros, ça va être plus compliqué. Sur Sinistre0 on pourra essayer deja de faire des choses.2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un)
 
 notamment pour Sinistre1 à 3 on choisira entre modèle gamma combiné à probit/logit, tobit, tobit généralisé ou double hurdle pour des variables bien choisies
 
-## 2.4 Modèle pour le prix de Police 1 ou 2 ou 3 (au moins un)
+## 3.4 Modèle pour le prix de Police 1 ou 2 ou 3 (au moins un)
 
-## 2.5 Modèle retenu au final
+## 3.5 Modèle retenu au final
 
 Le choix du modèle retenu au final et les critères choisis devront être justifiés.
 
-## IV regressions
+### IV regressions
 
-### The four kinds of variables in IV
+#### The four kinds of variables in IV
 
 -   Y = outcome variables
 -   X = endogenous, causal variable(s)
@@ -337,14 +427,25 @@ Le choix du modèle retenu au final et les critères choisis devront être justi
 
 ```
 
-# 3. Modélisation du nombre de sinistres et tarification des nouveaux arrivants
+# 4. Modélisation pour les prix : le nombre de sinistres et la tarification des nouveaux arrivants
 
-## 3.1 Modèle pour le nombre de sinistres, NSin
+## 4.1 Modèle pour le nombre de sinistres, NSin
 
-## 3.2 Méthode de tarification pour les nouveaux arrivants
+```{r echo=FALSE, figures-side-hist-NSin, fig.show="hold", out.width="50%"}
+hist(NSin)
+hist(log(NSin))
+```
 
-# 4. Estimation des durées
+## 4.2 Méthode de tarification pour les nouveaux arrivants
 
-## 4.1 Estimateur de Kaplan-Meier
+On a deux types de modèles pour la tarification :
 
-## 4.2 Modèle de Cox
+-   *tarification a priori* : pour une nouvelle police d'assurance souscrite, nous ne savons pas quelles garanties ont été souscrites, et connaissons [uniquement les caractéristiques du ménage]{.underline} qui a souscrit le contrat. Concrétement, nous n'utiliserons pas les variables *Police*.
+
+-   *tarification a posteriori* : nous savons ici quelles [garanties]{.underline} ont été souscrites, et le prix payé pour celles-ci. On souhaite savoir le coût estimé pour l'assureur de ce ménage. Ce modèle est différent car il s'avère qu'une plus grande couverture en assurance est associée à des coûts plus importants pour l'assureur. Ces modèles sont plus compliquées car on aura un souci d'endogénéité entre les variables.
+
+# 5. Estimation des durées
+
+## 5.1 Estimateur de Kaplan-Meier
+
+## 5.2 Modèle de Cox
