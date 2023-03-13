@@ -1,0 +1,727 @@
+---
+title: "Statistique des assurances - Projet"
+author: 
+- Isabelle Ajtay (41010932) 
+- Smail Chabane (38012939) 
+- Yuxuan Zhang (38019811)
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  pdf_document:
+     toc: true
+     includes:
+        in_header: header.tex
+  html_document:
+encoding: UTF-8
+lang: fr
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+<div class="title-slide">
+  
+# 1 Contexte et objectifs
+
+Dans le cadre du présent projet, nous somme une compagnie d'assurance non-vie, qui dispose d'un jeu de données historiques sur des ménages ayant souscrit ses polices d'assurance.
+
+Les objectifs ? Déterminer la prime pure pour un ménage intéressé par l'assurance proposée par notre compagnie. On souhaite construire un modèle qui explique les demandes d'indemnisation (Sinistres 1, 2 ou 3) en utilisant les données qu'on possède. On veut aussi avoir des modèles pour les prix des polices d'assurance précédemment vendues, le nombre de sinistres, ainsi que la durée de vie d'un contrat d'assurance.
+
+Pour ce faire, nous employerons des méthodes et outils vus en cours de *Statistiques des Assurances*, et d'autres cours, et le logiciel *R*.
+
+*La mtd train du package caret fait de la cv + boot, et permet d'ajuster des centaines de modèles prédictifs différents, spécifiés facilement avec l'argument method. VerboseIter donne un log du progress, pe masura ce le modèle est ajusté.*
+
+On va choisir lequel des deux on met dans le modèle: RUC ou full income. Mais pas les 2 car très fortement correlees. Il y a aussi les quantiles de cet income.
+
+Anat non signif. A suppr.
+
+Police i corresp a sin. i. Il a une assurance de base et rajoute des additionnelles. 0-\> le type n'a pas pris cette assurance là.
+
+Sini1 plus facile a modéliser, moins de zeros. 2 et 3 en ont bcp.
+
+1283 outlier pê. On doit les enlever.
+
+# 2. Les données - description et nettoyage
+
+```{r, results='hide', include=FALSE, echo=FALSE, warning = FALSE, message=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE)
+
+#install.packages("vcd")
+
+library(PerformanceAnalytics)    # pour fonction chart.Correlations
+library(dplyr)
+library(knitr)            # pour avoir un format table dans les sorties
+library(tidyverse)
+library(ggplot2)          # pour avoir de 'beaux' graphiques
+library(FactoMineR)       # pour effectuer l'ACP
+library(factoextra)       # pour extraire et visualiser les resultats issus de FactoMineR
+library(corrplot)         # pour avoir une representation des correlations
+library(ppcor)            # pour calculer les corrélations partielles
+library(cowplot)          # pour mettre plusieurs graphes sur une même figure
+library(questionr)        # pour des tableaux
+library(scales)           # pour des plots
+library(psych)
+library(AER);             # Applied Econometrics with R
+library(vcd)              # pour calculer le coeff. V de Cramèr
+library(rgl)
+library(mgcv)             # ces deux packages pour scatter3D
+library(caret)            # pour la fonction createDataPartition
+
+library(sandwich);        # pour les problèmes d'hétéroscédasticité, ces libraries
+library(lmtest);
+
+library(MASS)
+library(NbClust)
+library(fossil)
+library(lmtest)
+library(vctrs)
+```
+
+```{r, echo=FALSE}
+#La procédure pour lire ligne par ligne ces données est longue. Donc nous les avons #exportées dans un fichier .txt pour aller plus vite.
+
+# cat("\f")    # clears the console, by sending Ctrl + L; but also ads space in PDF
+data = read.table("data.txt", sep = " ", header=T , encoding = "UTF-8")
+dim(data)    # 5352    27
+#data = read.table("assurance_complete_corrige.R") #, sep = "", header=T)
+```
+## 2.1 Analyses univariées
+
+On a utilisé str pour afficher les informations simples concernant les variables, et summary pour afficher les données statistiques pour chaque variable.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+attach(data)
+str(data)                      # 5 352 obs, 27 vars
+summary(data)
+```
+
+Voici les variables:
+
+1.  pcs
+2.  RUC
+3.  cs
+4.  reves
+5.  crevpp
+6.  region
+7.  habi
+8.  Ahabi
+9.  Atyph
+10. agecat 11 Acompm 12 nbpers 13 enfants 14 Anat 15 Bauto 16 "Nbadulte"
+11. 17 Sinistre1" 18 Sinistre2 19 Sinistre3" 20 Police1 21 "Police2" 22 "Police3"
+12. 23 "durPolice1" 24 Durée" 25 NSin" 26 censure" 27 Sinistre0
+
+On observe que les variables *pcs, cs, region, crevpp, agecat* et *habi* sont qualitatives, malgré leur format caractères ou numérique. On rémedie.
+
+```{r echo=FALSE}
+sort(unique(region))          #  1 2 3 4 5 7 8 9
+
+data$pcs = as.factor ( data$pcs )
+data$cs = as.factor ( data$cs )
+data$Ahabi = as.factor ( data$Ahabi )
+data$Atyph = as.factor( data$Atyph )
+data$region = as.factor ( data$region )
+data$habi = as.factor ( data$habi )
+data$crevpp = as.factor ( data$crevpp )
+data$agecat = as.factor ( data$agecat )
+data$Acompm = as.factor(data$Acompm)
+data$enfants = as.factor(data$enfants)
+data$Anat = as.factor(data$Anat)
+data$Bauto = ifelse(Bauto == "Pas de vehicule", 0, 1)
+# data$censure = ifelse(censure == 0, 0, 1)      est déjà 0 / 1
+
+data2 = data
+data2$RUC = log(data2$RUC)
+```
+Il y a des sinistres mais aucune police souscrite, pour 13 observations. On les enlève. 
+```{r}
+# nettoyage: enlevons les lignes où on a des sinistres, mais aucune police souscrite
+data <- subset(data, !(Police1 == 0 & Police2 == 0 & Police3 == 0))
+```
+
+On a representé les boxplots de la variable RUC, et de son log. La transformation log rend la distribution simétrique.
+
+```{r echo=FALSE, warning=FALSE, figures-side-biplot2, fig.show="hold", out.width="50%", out.height="50%", cex=0.6}
+par(mar = c(3, 3, .1, .1))
+hist(RUC, col="cyan",main="Histogramme de variable RUC")
+
+# Calcul de la moyenne et de l'écart-type de RUC
+mu <- mean(RUC)
+sigma <- sd(RUC)
+
+# Calcul des densités normales correspondant à RUC
+x <- seq(min(RUC), max(RUC), length=100)
+y <- dnorm(x, mean=mu, sd=sigma)
+
+# ne marche pas bien, la courbe, sais pas encore pq
+# Ajout de la courbe de densité normale à l'histogramme
+lines(x, y, col="red", lwd=2)
+
+hist(log10(RUC), col="cyan",main="Histogramme de log(RUC)")
+# Calcul de la moyenne et de l'écart-type de RUC
+mu1 <- mean(log10(RUC))
+sigma1 <- sd(log10(RUC))
+
+# Calcul des densités normales correspondant à RUC
+x1 <- seq(min(RUC), max(RUC), length=100)
+y1 <- dnorm(x, mean=mu1, sd=sigma1)
+
+# Ajout de la courbe de densité normale à l'histogramme
+lines(x1, y1, col="blue", lwd=2)
+```
+
+```{r echo=FALSE, include=FALSE, warning=FALSE}
+# Verification des donnees manquantes
+# install.packages("funModeling")
+
+library ( funModeling )
+# funModeling v.1.9.4 :)
+# Examples and tutorials at livebook.datascienceheroes.com
+df_status(data)         # pas de NA
+
+# Statistiques descriptives
+profiling_num(data)
+
+quantile(RUC)
+```
+
+```{r}
+par ( mfcol =c(1 ,3))
+boxplot ( Sinistre0 ~ cs , data =data2, col="blue" )
+boxplot ( Sinistre0 ~ agecat , data =data2 , col="darkgreen" )
+boxplot ( Sinistre0 ~ Acompm , data =data2 , col="red" )
+```
+
+```{r, echo=TRUE}
+par(mfrow=c(3,2))
+boxplot(data[,17],main="Boxplot de variable Sinistre1")
+hist(data[,17],main="Histogramme de variable Sinistre1")
+boxplot(data[,18],main="Boxplot de variable Sinistre2")
+hist(data[,18],main="Histogramme de variable Sinistre2")
+boxplot(data[,19],main="Boxplot de variable Sinistre3")
+hist(data[,19],main="Histogramme de variable Sinistre3")
+```
+
+## 2.2 Analyses multivariées
+
+On peut constater que les variabilités des trois types de *Sinistres* sont toutes grandes.
+
+```{r, echo=TRUE}
+aggregate(data[,c(17,18,19,27)],list(data[,1]),mean)
+```
+
+```{r, echo=TRUE, warning=FALSE}
+#Representation des correlations
+variables_quantitatives = data %>% select_if(is.numeric) %>% cor()
+kable(variables_quantitatives, digits=3)
+corrplot(variables_quantitatives)
+```
+
+```{r}
+# variante de Q.
+datc =as.data.frame ( lapply (data2 ,as.numeric ))
+correlation = cor( datc )
+corrplot ( correlation )
+```
+
+```{r, echo=FALSE}
+# Boxplot
+# boxplot(data$column_name, main = "Boxplot of column_name", xlab = "Column name", ylab = "Values")
+
+# Histogram
+# hist(data$column_name, main = "Histogram of column_name", xlab = "Values", ylab = "Frequency", col = "blue")
+
+# Estimateurs de la densitÃ©
+# density_plot <- density(data$column_name, main = "Density Plot of column_name", xlab = "Values", ylab = "Density")
+# lines(density_plot, col = "red")
+```
+
+```{r}
+#-------------------------------------------------
+#                          ACP
+#-------------------------------------------------
+
+res.pca <- PCA(variables_quantitatives, scale.unit = TRUE, ncp=5, graph = F )
+
+res.pca
+
+round(res.pca$eig,2)
+```
+
+```{r echo=FALSE, warning=FALSE, figures-side-biplot, fig.show="hold", out.width="50%"}
+par(mar = c(4, 4, .1, .1))
+fviz_pca_var(res.pca, axes=c(1,2), col.var = "cos2", repel = TRUE, pointsize = 0.7, labelsize = 3, gradient.cols = c("turquoise1", "blue2", "red"))
+
+fviz_pca_var(res.pca, axes=c(3,4), col.var = "cos2", repel = TRUE, pointsize = 0.7, labelsize = 3, gradient.cols = c("turquoise1", "blue2", "red"))
+```
+## 2.3 Traitement des valeurs extrêmes
+
+Les modèles linéaires généralisés dichotomiques sont parfaitement adaptés à notre cas
+puisque la variable d’intérêt, Classe, est de type binaire et prend deux modalités. Les deux
+modèles possibles sont logit et probit qui se différencient par leur fonction de lien : logistique
+pour la première et normale pour la seconde. Implémenter ce type de modèle requiert de
+séparer notre échantillon en deux sous-échantillons. Cette étape s’avère nécessaire sinon
+l’erreur de prédiction du modèle aurait tendance à être trop optimiste si les données qui
+ont servi à construire le modèle sont les mêmes sur lesquelles il est testé. De ce fait, nous
+construisons un sous-échantillon d’apprentissage pour construire les modèles et un souséchantillon
+de test pour les tester.
+
+La Winsorisation est une bonne technique pour traiter les outliers. Elle consiste à remplacer les valeurs extrêmes par une valeur proche mais plus raisonnable. On remplace les valeurs qui sont inférieures à $Q1 - 1,5 * IQR$ par $Q1 - 1 * IQR$, et les valeurs qui sont supérieures à $Q3 + 1,5 * IQR par Q3 + 1 * IQR$.
+
+```{r}
+# Winsorisation des outliers
+winsorize <- function(x) {
+  # Calcul des quantiles pour détecter les outliers : 2,5ème et 97,5ème
+  Q <- quantile(x, c(0.025, 0.975), na.rm = TRUE)
+  # Remplacement des valeurs inférieures à Q1
+  x[x < Q[1]] <- Q[1]
+  # Remplacement des valeurs supérieures à Q2
+  x[x > Q[2]] <- Q[2]
+  return(x)
+}
+
+# library(plotly)
+# plot_ly(dat, x = ~ NSin, y = ~nbpers, z = ~Sinistre0, type = "scatter3d", mode = "markers")
+
+# Vous pouvez utiliser cette fonction pour les autres variables en remplaçant simplement x par le nom de la variable dans la fonction. Par exemple, pour winsoriser la variable Police1:
+data$Police1 <- winsorize(data$Police1)
+```
+
+Une variable importante est *RUC* (ou *reves*), qu'on voit augmenter avec la catégorie socio-professionnelle, *crevpp* (ou de manière équivalent, *cs* ou *pcs*). A tout groupe d'âge donc, une catégorie supérieure est associé à un revenu supérieur.
+
+```{r}   
+# RUC par age et catégorie socio-pro
+ggplot(data2, aes(x = agecat, y = RUC, fill = crevpp)) + 
+  geom_boxplot() + 
+  labs(x = "agecat", y = "RUC") +
+  theme_bw() +
+  scale_fill_brewer(palette = "Set1")
+```
+
+# 3. Modélisation des sinistres et des primes pures
+
+## 3.1 Problème d'endogénéïté dans les variables
+
+```{r, echo=TRUE}
+# Selection des variables quantitatives 
+quant_vars <- sapply(data, is.numeric)
+
+# Matrice de correlation
+cor_matrix <- cor(data[, quant_vars])
+corrplot(cor_matrix)
+```
+
+Si on fixe $\alpha = 0.05$, alors il y a une causalité entre Sinistre0 et les variables suivantes : RUC / durPolice1. 
+
+
+## 3.2 Modélisation de *Sinistre0*
+
+### Statistiques descriptives de *Sinistre0*
+
+```{r, fig.height=3, fig.width=6}
+cat("moyenne de Sinistre0 : ", mean(data$Sinistre0))
+cat("variance de Sinistre0 : ", var(data$Sinistre0))
+
+# Modifier les paramètres graphiques
+par(mar = c(5, 4, 4, 2) + 0.1, cex = 0.8)
+
+# Afficher le boxplot réduit
+boxplot(Sinistre0, horizontal = TRUE, col = "#8B008B", border = "darkblue", main = "Boxplot de Sinistre0", xlab = "Valeurs de Sinistre0", ylab = "")
+```
+
+Le boxplot indique seulement 3 valeurs extrêmes dans la partie inférieure de l'intervalle de valeurs. Nous les enlevons car ils peuvent influencer :
+-   les paramètres de la regression (en "tirant" le paramètres de la ligne de régression vers eux),
+-   les residus - en augmentant la variance résiduelle et en rendant la distribution des résidus non normale
+-   la sensibilité de certains modèles, dont ceux de regression linéaire.
+
+```{r echo = FALSE}
+# Calculer les limites du boxplot pour la variable Sinistre0
+limits <- boxplot.stats(data$Sinistre0)$out
+
+# Créer un nouveau jeu de données sans les outliers
+data_without_outliers <- data2[!(data$Sinistre0 %in% limits), ]
+
+# Afficher les statistiques de la variable Sinistre0 sans les outliers
+summary(data_without_outliers$Sinistre0)
+
+# summary(data_without_outliers$Sinistre0)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  4.334  13.290  17.262  16.181  19.273  27.307 
+#vs:  summary(Sinistre0)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.9652 13.2769 17.2558 16.1732 19.2718 27.3074 
+```
+On observe sur l'histogramme de la variable *Sinistre0* qu'il y a deux sous-populations distinctes, qu'on sépare.
+
+```{r}
+# Chargement des packages nécessaires
+library(tidyverse)
+
+# Création d'une variable pour déterminer les groupes
+# Selon la moyenne et l'écart-type de la variable à expliquer
+data2 <- data_without_outliers %>%
+  mutate(groupe = if_else(Sinistre0 > 13.7, "Group 1", "Group 2"))
+
+# Visualisation des deux groupes à l'aide d'un histogramme
+ggplot(data2, aes(x = Sinistre0, fill = groupe)) +
+  geom_histogram(binwidth = 1, position = "identity", alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue", "grey"), name = "Groupe") +
+  theme_minimal()
+```
+```{r}
+ggplot(data, aes(x=RUC, y=Sinistre0, color=Sinistre0>=14)) + 
+  geom_point() +
+  scale_color_manual(values = c("blue", "red"), labels = c("Sinistre0<14", "Sinistre0>=14")) +
+  labs(x = "RUC", y = "Sinistre0")
+
+# échantillons train et test
+indxTrain = createDataPartition(data2$Sinistre0, p=0.9, list=FALSE)
+Dtrain = data2[indxTrain,]
+Dtest = data2[-indxTrain,]
+
+# on sépare les groupes:
+data_Sin0_groupe1 = subset(Dtrain, Sinistre0 < 13.7)
+data_Sin0_groupe2 = subset(Dtrain, Sinistre0 >= 13.7)
+```
+
+On peut nommer les deux groupes ainsi formés les "bons risques" (Sinistre0 petit, groupe 1) et les "mauvais risques" (Sinistre0 grand, groupe 2). On a 1395 individus dans le premier groupe, et 3954 dans le deuxième.
+
+La méthode des MCO donne l'estimateur le plus efficient s'il n'y a pas d'endogéneïté.
+
+S'il y a de l'endogéneïté, OLS (MCO) va donner des résultats inconsistants. L'estimateur des variables instrumentales va être consistant, mais inéfficient.
+
+```{r}
+# Création d'un indicateur binaire pour le groupe 1 de Sinistre0
+# data2$groupe <- ifelse(Sinistre0 == "Groupe 1", 1, 0)
+
+# Modèle linéaire avec Sinistre0 comme variable expliquée
+# on enlève des variables non significatives: pcs + cs + + Sinistre2 + Sinistre3
+# + Police1 + Police2 + Police3 + Ahabi + Atyph + durPolice1 + enfants + crevpp 
+#  + Bauto + Nbadulte + habi + agecat + NSin + region
+modele <- lm(Sinistre0 ~ groupe + RUC + Acompm + nbpers  + Anat + Durée, data = Dtrain)
+
+# Affichage des résultats de la modélisation
+summary(modele)       # Adjusted R-squared:  0.7782  
+```
+On enlève successivement: Anat et nbpers, non significatives
+```{r}
+modele <- lm(Sinistre0 ~ groupe + RUC + Acompm + nbpers  + Durée, data = Dtrain)
+
+# Affichage des résultats de la modélisation
+summary(modele)       # Adjusted R-squared:  0.7782 
+
+modele <- lm(Sinistre0 ~ groupe + RUC + Acompm + Durée, data = Dtrain)
+
+# Affichage des résultats de la modélisation
+summary(modele)       # Adjusted R-squared:  0.778 
+```
+```{r}
+sum(data$Sinistre0 <= 0)     # 0
+```
+
+```{r, echo=FALSE, include=FALSE}
+# Sélectionner les variables à inclure dans la régression linéaire
+vars <- setdiff(names(Dtrain), c("reves", "crevpp", "censure", "Anat", "Police1", "Ahabi", "region", "enfants", "habi"))
+
+# Régression linéaire multiple de Sinistre0 sur les autres variables sauf ...
+model1 <- lm(Sinistre0 ~ ., data = Dtrain[, vars])
+
+# Afficher le résumé du modèle
+summary(model1)   # donne significatives: RUC, Intercept, Acompm, cs, group, Durée, Sinistre1
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Sélection des variables
+selectionAIC = step(model1, trace=0, direction="both")
+```
+
+Sinistre0 ~ RUC + cs + Acompm + nbpers + Durée + group
+
+```{r echo=FALSE}
+summary(selectionAIC)
+# lm(formula = Sinistre0 ~ RUC + cs + Acompm + nbpers + Durée + group, data = data_without_outliers[, vars])
+```
+
+On retient donc à cette étape un modèle linéaire où Sinistre0 est expliqué par RUC, Acomp, cs, Durée et le groupe (variable que nous avons introduite).
+
+```{r}
+# On vérifie visuellement l'homoscédasticité des résidus
+plot(selectionAIC)
+# voir aussi: tests de Shapiro-Wilk pour la normalité des résidus
+# pour l'homoscédasticité des résidus: test de Levene 
+# Test de Breusch-Pagan
+# Test de White
+# Test de Bartlett pour l'homoscédasticité des résidus? 
+#bartlett.test(selectionAIC$residuals ~ selectionAIC$fitted.values)
+```
+On identifie les outliers: 1918, 1641, 4569, 5290, 894, 4410
+
+```{r}
+data3 = Dtrain[-c(1918, 1641, 4569, 5290, 894, 4410),]
+
+selectionAIC = lm(Sinistre0 ~ RUC + cs + Acompm + nbpers + Durée + groupe, data = data3)
+summary(selectionAIC)
+
+# plot(selectionAIC$fitted.values, selectionAIC$residuals, 
+#      main = "Graphique des résidus en fonction des valeurs prédites", xlab = "Valeurs prédites", ylab = "Résidus")
+
+plot(selectionAIC)
+```
+
+
+
+### Analyse multivariée
+
+```{r warning=FALSE, echo=FALSE}    
+# permet de voir les 2 groupes
+scatter3d(Sinistre0 ~ RUC * durPolice1, data=Dtrain, surface=FALSE, residuals=TRUE, 
+  bg="black", axis.scales=TRUE, axis.ticks=TRUE, grid=TRUE, ellipsoid=FALSE, surface.col=carPalette()[-1],      surface.alpha=0.5,      fogtype=c("exp2", "linear", "exp", "none"), fill=TRUE )
+```
+
+```{r warning=FALSE, echo=FALSE}    
+# permet de voir les 2 groupes
+scatter3d(Sinistre0 ~ Sinistre1 * RUC, data=Dtrain, surface=FALSE, residuals=TRUE, 
+  bg="black", axis.scales=TRUE, axis.ticks=TRUE, grid=TRUE, ellipsoid=FALSE, surface.col=carPalette()[1], surface.alpha=0.5,      fogtype=c("exp2", "linear", "exp", "none"), fill=TRUE )
+```
+
+
+### Modèles proposés
+
+Comme la variable *Sinistre0* n'a pas de zéros (toutes les valeurs observées sont positives), nous l'avons modélisée avec un modèle linéaire généralisé avec une fonction de lien appropriée qui garantit que les prévisions soient également positives. Les modèles GLM (Generalized Linear Model), qui étendent le modèle gaussien à la famille de lois exponentielle, ont été "introduits en statistique par Nelder & Wedderburn (1972)", et "permettent de s'affranchir de l'hypothèse de normalité, en traitant de manière unifiée des réponses" ((1) Denuit, 2005, p. 74)
+
+On utilise les variables sélectionnées précédemment :
+lm(formula = Sinistre0 ~ groupe + RUC + Acompm + Durée, data = Dtrain)
+
+Nous avons ajustés avec des procédures de sélection de variables des modèles:
+- GLM : Gamma avec fonction de lien
+  * Logarithmique : g(x) = log(x)
+  * Identité : g(x) = x
+  * Inverse : g(x) = $\frac{1}{x}$
+  * Inverse carrée : g(x) = $\frac{1}{x^2}$
+- GLM : Log normal
+```{r}
+# Ajuster un GLM gamma avec fonction de lien log
+
+# Modèle initial avec toutes les variables
+model_full1 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe1, family = Gamma(link = "log"))
+model_full2 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe2, family = Gamma(link = "log"))
+
+# Sélection de variables avec step - sans bla bla
+model_gamma_log_1 <- step(model_full1, direction = "both", trace = 0 )
+model_gamma_log_2 <- step(model_full2, direction = "both", trace = 0 )
+
+# Ajuster un GLM gamma sur le groupe 2
+# glm_gamma_groupe1 <- glm(Sinistre0 ~ RUC + Acompm + Durée, 
+#                          data = data_Sin0_groupe1, family = Gamma(link = "log"))
+# 
+# # Ajuster un GLM gamma sur le groupe 2
+# glm_gamma_groupe2 <- glm(Sinistre0 ~ RUC + Acompm + nbpers, 
+#                          data = data_Sin0_groupe2, family = Gamma(link = "log"))
+
+summary(model_gamma_log_1)
+summary(model_gamma_log_2)
+```
+
+```{r}
+plot(model_gamma_log_1)
+plot(model_gamma_log_2)
+```
+```{r}
+# Ajuster un GLM gamma avec fonction de lien log
+
+# Modèle initial avec toutes les variables
+model_full1 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe1, family = Gamma(link = "identity"))
+model_full2 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe2, family = Gamma(link = "identity"))
+
+# Sélection de variables avec step - sans bla bla
+model_gamma_identity_1 <- step(model_full1, direction = "both", trace = 0 )
+model_gamma_identity_2 <- step(model_full2, direction = "both", trace = 0 )
+
+summary(model_gamma_identity_1)
+model_gamma_identity_1$formula    # Sinistre0 ~ RUC + Acompm
+summary(model_gamma_identity_2)
+```
+
+La distribution Gamma est souvent utilisée pour modéliser des variables qui sont strictement positives et ont une grande variabilité. Une fonction de lien appropriée est la fonction de lien exponentielle. Nous ajustons donc un modèle linéaire généralisé avec une distribution Gamma et une fonction de lien exponentielle. Ce modèle garantit que les prédictions sont également positives.
+
+
+```{r echo=FALSE}
+# Ajuster un GLM gamma avec fonction de lien log
+
+# Modèle initial avec toutes les variables
+model_full1 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe1, family = Gamma(link = "inverse"))
+model_full2 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe2, family = Gamma(link = "inverse"))
+
+# Sélection de variables avec step - sans bla bla
+model_gamma_inverse_1 <- step(model_full1, direction = "both", trace = 0 )
+model_gamma_inverse_2 <- step(model_full2, direction = "both", trace = 0 )
+
+summary(model_gamma_inverse_1)
+summary(model_gamma_inverse_2)
+```
+
+```{r echo=FALSE}
+# Ajuster un GLM gamma avec fonction de lien Inverse carrée
+
+# Modèle initial avec toutes les variables
+model_full1 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe1, family = Gamma(link = "sqrt"))
+model_full2 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, data =
+                     data_Sin0_groupe2, family = Gamma(link = "sqrt"))
+
+# Sélection de variables avec step - sans bla bla
+model_gamma_sqrt_1 <- step(model_full1, direction = "both", trace = 0 )
+model_gamma_sqrt_2 <- step(model_full2, direction = "both", trace = 0 )
+
+summary(model_gamma_sqrt_1)
+summary(model_gamma_sqrt_2)
+```
+
+```{r echo=FALSE}
+# Ajuster un GLM log normal 
+model_lognorm_full_1 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, 
+                     data = data_Sin0_groupe1,  
+                     family = gaussian(link = "log"))
+model_lognorm_full_2 <- glm(Sinistre0 ~ RUC + crevpp + agecat + Acompm + Bauto + Durée + NSin, 
+                     data = data_Sin0_groupe2,  
+                     family = gaussian(link = "log"))
+
+# Sélection de variables avec step - sans bla bla
+model_lognorm_1 <- step(model_lognorm_full_1, direction = "both", trace = 0 )
+model_lognorm_2 <- step(model_lognorm_full_2, direction = "both", trace = 0 )
+
+summary(model_lognorm_1)
+summary(model_lognorm_2)
+```
+
+
+```{r echo=FALSE}
+# calculons les differences de valeurs AIC entre les modeles
+AIC_diff_groupe1 <- AIC( model_gamma_log_1, model_gamma_identity_1, model_gamma_inverse_1, 
+                         model_gamma_sqrt_1, model_lognorm_1)
+AIC_diff_groupe2 <- AIC(model_gamma_log_2, model_gamma_identity_2, model_gamma_inverse_2, 
+                        model_gamma_sqrt_2, model_lognorm_2)
+
+# print AIC differences
+AIC_diff_groupe1
+AIC_diff_groupe2
+```
+Les cinq  modèles ont quasiment le même score AIC par groupe, avec un très légèr mieux pour *Gamma identité* dans le cas du groupe 1, et pour *Gamma inverse* dans le cas du groupe 2.
+
+```{r  echo=FALSE}
+model_gamma_identity_1$formula    # Sinistre0 ~ RUC + Acompm
+model_gamma_inverse_2$formula     # Sinistre0 ~ RUC + crevpp + Acompm + Durée
+```
+Cependant on voit dans les résidus ("nuage" serré) qu'il reste de l'information a extraire.
+On régresse les carrés de ces résidus sur les variables du modèle initial. 
+```{r}
+# Calcul des résidus et mise au carré
+residus_carre <- residuals(model_gamma_identity_1)^2
+
+# Régression des résidus au carré sur les variables significatives
+modele_het_1 <- lm(residus_carre ~ RUC + Acompm, data = data_Sin0_groupe1)
+
+summary(modele_het_1)
+
+scatter3d(residuals(model_gamma_identity_1) ~ RUC + nbpers, data=data_Sin0_groupe1, surface=FALSE, 
+            residuals=TRUE, bg="black", axis.scales=TRUE, axis.ticks=TRUE, grid=TRUE, ellipsoid=FALSE, 
+            surface.col=carPalette()[-1],      surface.alpha=0.5,      fogtype=c("exp2", "linear", "exp", "none"), fill=TRUE )
+
+plot(resid(model_gamma_identity_1) ~ nbpers, data = data_Sin0_groupe1)
+plot(resid(model_gamma_identity_1) ~ RUC, data = data_Sin0_groupe1)
+plot(resid(model_gamma_identity_1) ~ pcs, data = data_Sin0_groupe1)
+
+
+# Visualisation du modèle hétéroscédastique
+plot(residus_carre ~ predict(model_gamma_identity_1), 
+     pch = 20, col = "blue", xlab = "Valeurs prédites", ylab = "Résidus^2")
+abline(modele_het_1, col = "red")
+```
+
+
+
+
+Prof: , on peut essayer le modéliser par un modèle linéaire f. de: compo du ménage, catégorie d'âge, type d'habitation, nationalité, voiture ou pas, catégorie socio-prof, la région, le revenu (un d'eux!!). On ne va pas mettre la variable censure ou pas, qui nous dit si l'individu est dans la base ou pas. Il faut pas la mettre. Durée? Ca peut faire du sens, mais ça risque de compliquer un peu le modèle. Mais durée de Police est celle de la Police1, or je ne sais à quoi c lié le Sinistre0. Les enfants, ça peut être rendondant avec d'autres variables (type de ménage pê). Ca donne un premier modèle.
+
+Plein de choses ne sont pas signif. Couple avec enfant c *très signif*; la compo du mènage, et le revenu aussi, très signif. On va faire le tri, regarder les AIC.
+
+Et si on fait des analyses numériques, notamment des graphes, il y a des phénomènes un peu bizzares: des gros packets. Cad on a des individus dont les fitted values sont très petites; et pour d'autres, très grosses. Donc c un mélange. Il y a vraiment DEUX POPULATIONS la dédans - une certaine **hétérosced**.
+
+Pour modéliser l'hétérosced, il y a qqch de très simple dans un 1er temps: prendre les résidus du modèle et les mettre au carré. Puis regresser sur les variables mises dans le modèles. Car si on regresse et on voit qu'il y a des variables qui sont significatives, càd que [les residus dépendent des variables observées]{.underline}. Donc un moyen très simple, lin_modele_1.1, si on plot les residus, on va les mettre au carré + nommer () et on va les regresser (LM) sur les variables que j'ai vu qu'étaient significatives: RUC, Acompm (compo du menage). On voit que RUC est très signif - donc il y a de l'hétérosced. Donc faudra ut. les moindres carrés linéaires généralisés.
+
+GLM: on peut essayer de modéliser. On rajoute une nouvelle var, delta: le fait que le sinistre1 soit \>0. Cad j'ai une sinistre, vs. j'ai pas de sinistre. Donc j'ai une nouvelle var, que je vais modéliser par un probit: modèle lin gen, var. delta expliquée par : cs, anat, type... Fam Binomiale, avec modèle soit Probit ou logit. Cloglog (double exponentielle). Rcmd donne le modèle: glm, famille de lien binomial, avec une famille logit. Ca sort tous les estimateurs, et faudra choisir quelles sont pertinentes pour savoir si on aura un sinistre de type 1 ou pas.
+
+On voit que la catégorie d'âge est importante en particulier pour les personnes agées; la région aussi, mais aussi la compo du ménage; et le type être proprio ou pas est légéremment signif. Faudra qu'on choisisse nous les variables.
+
+On va voir, très souvent, que les modèles linéaire, gamma, autre modèles, ne sont pas très différents, a la fin. En terme des coefficients ou des residus. Mais s'il y a beaucoup de zéros, ça va être plus compliqué. Sur Sinistre0 on pourra essayer deja de faire des choses.2.3 Modélisation de Sinistre 1 ou 2 ou 3 (au moins un)
+
+notamment pour Sinistre1 à 3 on choisira entre modèle gamma combiné à probit/logit, tobit, tobit généralisé ou double hurdle pour des variables bien choisies
+
+## 3.4 Modéle pour au moins un des *Sinistre1*, *Sinistre2* ou *Sinistre3* 
+
+"Modélisation du coût total, importance des contrats sans sinistre
+
+Supposons que la variable d'interet Y soit le coût (total) des polices, sur un an, pour l'ensemble des polices du portefeuille. Un très grand nombre de polices n'ayant pas de sinistre, la variable Y sera alors nulle pour la plupart des observations. Une loi Gamma (par exemple) ne permet pas de modéliser ce genre de comportement
+(voir le Chapitre 6 du Tome 1 sur la différence entre le modèle collectif et le modele individuel).
+La loi de Tweedie permet de prendre en compte ce genre de comportement, en rajoutant une mesure de Dirac en 0 à une loi de probabilite de support IR+. La loi de Y est alors une loi Poisson composee," (Charpentier, p. 98)
+
+```{r}
+ggplot(data = Dtrain, aes(x = Police1, y = Sinistre1, color = Bauto)) +
+  geom_point() +
+  facet_wrap(~ Bauto, ncol = 2, labeller = labeller(c("Pas de véhicule", "Au moins un véhicule")))
+```
+Ce graphique montre qu'on a plus de sinistres indemnisés parmi les souscripteurs de Police1 qui possèdent une ou plusieurs voitures.
+
+## 3.5 Modèle pour le prix de Police 1 ou 2 ou 3 (au moins un)
+
+## 3.6 Modèle retenu au final
+
+Le choix du modèle retenu au final et les critères choisis devront être justifiés.
+
+### IV regressions
+
+#### The four kinds of variables in IV
+
+-   Y = outcome variables
+-   X = endogenous, causal variable(s)
+-   Z = instrument(s): doivent être exogenes, càd leur influence sur Y se fait seulement via leur influence sur X, la var endogene
+-   W = any exogenous variables not including instruments
+
+```{r, echo=TRUE}
+
+```
+
+# 4. Modélisation pour les prix : le nombre de sinistres et la tarification des nouveaux arrivants
+
+## 4.1 Modèle pour le nombre de sinistres, NSin
+ 
+Les modèles de comptage sont utilisés en assurance pour estimer le nombre de sinistres dans une période donnée en fonction des caractéristiques du risque. 
+
+```{r echo=FALSE, figures-hist-NSin, fig.show="hold", out.width="50%"}
+hist(NSin, col="navy")
+```
+
+## 4.2 Méthode de tarification pour les nouveaux arrivants
+
+On a deux types de modèles pour la tarification :
+
+-   *tarification a priori* : pour une nouvelle police d'assurance souscrite, nous ne savons pas quelles garanties ont été souscrites, et connaissons [uniquement les caractéristiques du ménage]{.underline} qui a souscrit le contrat. Concrétement, nous n'utiliserons pas les variables *Police*.
+
+-   *tarification a posteriori* : nous savons ici quelles [garanties]{.underline} ont été souscrites, et le prix payé pour celles-ci. On souhaite savoir le coût estimé pour l'assureur de ce ménage. Ce modèle est différent car il s'avère qu'une plus grande couverture en assurance est associée à des coûts plus importants pour l'assureur. Ces modèles sont plus compliquées car on aura un souci d'endogénéité entre les variables.
+
+# 5. Estimation des durées
+
+En assurance, les modèles de survie sont utilisées pour estimer la durée d'un événement, nommé "temps de survie", comme par exemple la durée de d'un contrat (notre cas ici) ou le temps avant la survenance d'un sinistre. 
+
+## 5.1 Estimateur de Kaplan-Meier
+
+## 5.2 Modèle de Cox
+
+# 6. Références
+
+(1) Denuit, M. et Charpentier, A.  - "Mathématiques de l'assurance non-vie", tome II, Economica, 2005.
